@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>USB-C キャプチャーボード映像テスト</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f5f5f5; color: #222;
+  }
+  main { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.25rem; margin: 0 0 12px; }
+  p { line-height: 1.55; }
+  .controls {
+    display: grid; gap: 10px; margin: 12px 0;
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  }
+  button, select {
+    width: 100%; min-height: 48px; padding: 10px;
+    font-size: 1rem; border: 1px solid #999; border-radius: 8px;
+    background: white; color: #111;
+  }
+  button { background: #1666cc; color: white; border: 0; font-weight: 600; }
+  button.secondary { background: #555; }
+  button:disabled { opacity: .5; }
+  #status {
+    padding: 12px; border-radius: 8px; background: white;
+    border: 1px solid #ddd; overflow-wrap: anywhere;
+  }
+  video {
+    display: block; width: 100%; max-height: 68vh; aspect-ratio: 16 / 9;
+    object-fit: contain; background: #111; border-radius: 8px;
+  }
+  .small { font-size: .9rem; color: #444; }
+  details { margin-top: 12px; background: white; padding: 10px 12px; border-radius: 8px; }
+  #devices { margin: 8px 0 0; padding-left: 20px; overflow-wrap: anywhere; }
+  .label { display: block; font-weight: 600; margin: 10px 0 5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>USB-C キャプチャーボード映像テスト</h1>
+  <p class="small">
+    iPadのUSB-C端子にキャプチャーボードを接続してから「カメラ一覧を更新」→「映像を開始」の順に押してください。
+    カメラへのアクセス許可が表示されたら「許可」を選びます。
+  </p>
+
+  <video id="preview" autoplay playsinline muted></video>
+
+  <label class="label" for="cameraSelect">映像入力（カメラ）</label>
+  <select id="cameraSelect">
+    <option value="">カメラ一覧を取得してください</option>
+  </select>
+
+  <div class="controls">
+    <button id="refreshBtn" type="button">カメラ一覧を更新</button>
+    <button id="startBtn" type="button">映像を開始</button>
+    <button id="stopBtn" class="secondary" type="button" disabled>映像を停止</button>
+  </div>
+
+  <div id="status" role="status" aria-live="polite">状態：まだカメラを確認していません。</div>
+
+  <details>
+    <summary>検出されたカメラの一覧</summary>
+    <ul id="devices"><li>未取得</li></ul>
+  </details>
+
+  <details>
+    <summary>映像が映らない場合</summary>
+    <ol>
+      <li>キャプチャーボードをiPadのUSB-C端子に接続してから、一覧を更新します。</li>
+      <li>「映像入力」で「USB Video」「USB Camera」「HDMI Capture」などの名前があれば選択します。</li>
+      <li>一覧に出ない場合は、iPadOSがそのキャプチャーボードを認識していない可能性があります。ケーブルが充電専用でないか、給電が必要でないか確認してください。</li>
+      <li>このページはSafariで開き、HTTPSのURLから利用してください。端末内のHTMLファイルを直接開く場合、カメラ機能が利用できないことがあります。</li>
+      <li>HDMIキャプチャーボードの「INPUT」にカメラのHDMI出力を接続してください。HDMI出力がないカメラは、この方法では映像を取り込めません。</li>
+    </ol>
+  </details>
+</main>
+
+<script>
+(() => {
+  const video = document.getElementById('preview');
+  const select = document.getElementById('cameraSelect');
+  const status = document.getElementById('status');
+  const devicesList = document.getElementById('devices');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  let currentStream = null;
+
+  function setStatus(message) {
+    status.textContent = '状態：' + message;
+  }
+
+  async function refreshCameras() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      setStatus('このブラウザではカメラ機能を利用できません。SafariでHTTPSのページを開いてください。');
+      return;
+    }
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter(d => d.kind === 'videoinput');
+      const previous = select.value;
+      select.innerHTML = '';
+      if (cameras.length === 0) {
+        select.add(new Option('カメラが見つかりません', ''));
+      } else {
+        cameras.forEach((camera, i) => {
+          const label = camera.label || `カメラ ${i + 1}（許可後に名前が表示されます）`;
+          select.add(new Option(label, camera.deviceId));
+        });
+        if (cameras.some(c => c.deviceId === previous)) select.value = previous;
+      }
+      devicesList.innerHTML = '';
+      if (cameras.length === 0) {
+        devicesList.appendChild(new OptionText('映像入力デバイスが検出されませんでした。'));
+      } else {
+        cameras.forEach((camera, i) => {
+          const li = document.createElement('li');
+          li.textContent = `${i + 1}: ${camera.label || '名称非公開'}${camera.deviceId ? '（IDあり）' : ''}`;
+          devicesList.appendChild(li);
+        });
+      }
+      setStatus(`映像入力を ${cameras.length} 台検出しました。外付けキャプチャーボードが一覧にあるか確認してください。`);
+    } catch (err) {
+      setStatus(`カメラ一覧の取得に失敗しました：${err.name || ''} ${err.message || err}`);
+    }
+  }
+
+  function OptionText(text) {
+    const li = document.createElement('li');
+    li.textContent = text;
+    return li;
+  }
+
+  async function startVideo() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('カメラ機能が利用できません。SafariでHTTPSのページを開いてください。');
+      return;
+    }
+    stopVideo(false);
+    const deviceId = select.value;
+    const videoConstraints = deviceId
+      ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      : { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } };
+
+    setStatus('カメラへの接続を試しています。許可の確認が出たら許可してください。');
+    try {
+      currentStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+      video.srcObject = currentStream;
+      await video.play();
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      const track = currentStream.getVideoTracks()[0];
+      setStatus(`映像を取得しました。入力：${track.label || 'カメラ'}。映像が表示されるか確認してください。`);
+      await refreshCameras();
+    } catch (err) {
+      let advice = '';
+      if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+        advice = ' カメラの使用が拒否されたか、安全な接続ではありません。Safariのカメラ許可とHTTPSを確認してください。';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        advice = ' 利用できるカメラが見つかりません。USB-C接続とキャプチャーボードの対応状況を確認してください。';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        advice = ' カメラを開けません。別のアプリが使用中でないか、接続や給電を確認してください。';
+      } else if (err.name === 'OverconstrainedError') {
+        advice = ' 選択したカメラの条件に対応できません。一覧を更新して別のカメラを選んでください。';
+      }
+      setStatus(`映像を開始できませんでした：${err.name || ''} ${err.message || ''}.${advice}`);
+      await refreshCameras();
+    }
+  }
+
+  function stopVideo(updateStatus = true) {
+    if (currentStream) {
+      currentStream.getTracks().forEach(track => track.stop());
+      currentStream = null;
+    }
+    video.srcObject = null;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    if (updateStatus) setStatus('映像を停止しました。');
+  }
+
+  refreshBtn.addEventListener('click', refreshCameras);
+  startBtn.addEventListener('click', startVideo);
+  stopBtn.addEventListener('click', () => stopVideo(true));
+  select.addEventListener('change', () => {
+    if (currentStream) setStatus('入力先を変更しました。「映像を停止」してから再度「映像を開始」を押してください。');
+  });
+  window.addEventListener('pagehide', () => stopVideo(false));
+})();
+</script>
+</body>
+</html>
